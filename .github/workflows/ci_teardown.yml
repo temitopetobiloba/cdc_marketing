@@ -1,0 +1,33 @@
+# =============================================================================
+# CI teardown — when a Pull Request is closed (merged or not), drop its
+# ci_pr_<N>* schemas so CI doesn't leave paid-for tables lying around.
+# =============================================================================
+name: dbt-ci-teardown
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  teardown:
+    runs-on: ubuntu-latest
+    environment: ci
+    env:
+      DBT_PROFILES_DIR: .
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_CI_TOKEN }}
+      DBT_CI_CATALOG: ci_development
+      DBT_CI_SCHEMA: ci_pr_${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: dbt deps
+      - name: Drop CI schemas for this PR
+        run: >
+          dbt run-operation drop_ci_schemas --target ci
+          --args '{schema_prefix: ci_pr_${{ github.event.pull_request.number }}}'

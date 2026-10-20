@@ -1,0 +1,100 @@
+# =============================================================================
+# Production deployment — runs when code is merged into main, plus daily.
+#
+# Authenticates as the Databricks SERVICE PRINCIPAL (OAuth client id + secret),
+# never with a personal token. Secrets live in the GitHub "production"
+# environment, which you can protect with required reviewers so a human
+# approves every production deploy.
+#
+# Steps: deps -> freshness -> build (models + tests) -> docs -> Elementary
+# Static dbt docs are published to GitHub Pages.
+# =============================================================================
+name: dbt-deploy-prod
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 5 * * *"          # daily 05:17 UTC: pick up new raw data
+  workflow_dispatch:              # manual "Run workflow" button
+    inputs:
+      full_refresh:
+        description: "Rebuild incremental models from scratch"
+        type: boolean
+        default: false
+
+concurrency:                      # never run two production deploys at once
+  group: prod-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DBT_PROFILES_DIR: .
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_SP_CLIENT_ID }}          # SP application id
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_SP_CLIENT_SECRET }}  # SP OAuth secret
+      DBT_PROD_CATALOG: marketing_production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+      - run: dbt deps
+
+      - name: Confirm connection as Service Principal
+        run: dbt debug --target prod
+
+      - name: Check source freshness
+        run: dbt source freshness --target prod
+        continue-on-error: true
+
+      - name: Build production models + tests
+        run: |
+          if [ "${{ github.event.inputs.full_refresh }}" = "true" ]; then
+            dbt build --target prod --full-refresh
+          else
+            dbt build --target prod
+          fi
+
+      - name: Generate static docs (single HTML file)
+        run: |
+          dbt docs generate --target prod --static
+          mkdir -p site
+          cp target/static_index.html site/index.html
+
+      - name: Elementary report
+        if: always()
+        run: |
+          edr report --profile-target prod --file-path site/elementary.html
+        continue-on-error: true
+
+      - name: Upload Pages artifact
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  publish-docs:
+    needs: deploy
+    if: always()
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - id: pages
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,88 @@
+# =============================================================================
+# dbt_project.yml — the "control panel" of the dbt project.
+#
+# It tells dbt:
+#   * what the project is called and which profile (connection) to use
+#   * where models, tests, macros, seeds live
+#   * DEFAULT materialization + schema per folder (overridable per model)
+#
+# Learning note: settings here cascade downwards. A setting on `staging:`
+# applies to every model in models/staging unless a model overrides it with
+# {{ config(...) }} at the top of its .sql file.
+# =============================================================================
+
+name: cdc_marketing
+version: "1.0.0"
+config-version: 2
+
+# Must match the top-level key in profiles.yml
+profile: cdc_marketing_profile
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets: ["target", "dbt_packages", "logs"]
+
+# -----------------------------------------------------------------------------
+# Project variables — values you may want to change without editing SQL.
+# Override at runtime:  dbt build --vars '{"incremental_lookback_days": 7}'
+# -----------------------------------------------------------------------------
+vars:
+  # Where the raw tables live is set in the sources YAML with env_var(),
+  # because dbt does not render Jinja inside values defined here.
+
+  # Ad platforms re-state recent numbers for a few days (late clicks,
+  # attribution windows, fraud filtering). The incremental fact re-processes
+  # this many trailing days on every run so those corrections are captured.
+  incremental_lookback_days: 3
+
+  # The Snapchat Marketing API reports spend in *micro-currency*
+  # (1 EUR = 1,000,000). Set to true if your raw export is in micros.
+  snapchat_spend_in_micros: false
+
+# -----------------------------------------------------------------------------
+# Folder-level defaults. Reasoning for each choice is in README.md §Materializations
+# -----------------------------------------------------------------------------
+models:
+  cdc_marketing:
+    staging:
+      +materialized: view   # light cleaning only, always fresh, ~zero storage
+      +schema: staging
+
+    intermediate:
+      +materialized: view   # joins per platform; the union model overrides to ephemeral
+      +schema: intermediate
+
+    marts:
+      +schema: marts
+      +persist_docs:        # push dbt descriptions into Unity Catalog comments,
+        relation: true      # so analysts / AI agents see them inside Databricks
+        columns: true
+      marketing:
+        +materialized: table  # fact overrides to incremental in its own file
+
+  # Elementary writes its monitoring tables into their own schema
+  elementary:
+    +schema: elementary
+
+# Seeds: small reference CSVs maintained in Git (exchange rates)
+seeds:
+  cdc_marketing:
+    +schema: reference
+
+# Tests store their failing rows so you (and Elementary) can inspect them
+data_tests:
+  cdc_marketing:
+    +store_failures: "{{ target.name in ['ci', 'prod'] }}"
+    +schema: test_failures
+
+# Note: Elementary registers its own on-run-end hook automatically; it uploads
+# every run's model + test results into the elementary schema.
+
+flags:
+  require_explicit_package_overrides_for_builtin_materializations: false
+  require_generic_test_arguments_property: true   # tests use the `arguments:` block (dbt 1.10+)

@@ -1,0 +1,83 @@
+# =============================================================================
+# Facebook (Meta) Ads raw tables, loaded unchanged (all STRING) into bronze by
+# databricks/01_load_raw_ads.sql. A SOURCE is a table dbt reads but did not
+# build: declaring it gives lineage, freshness checks and one place to rename.
+#
+# Hierarchy:  account ─< campaign ─< ad group (ad set) ─< ad ─< daily stats
+# The stats table only carries ad_id + account_id; names come from the others.
+# =============================================================================
+# The source table names below ARE the Databricks table names in
+# third_layer.marketing_staging (rename uploaded tables with the query in README §5.1).
+version: 2
+
+sources:
+  - name: facebook_ads
+    description: Raw Facebook Ads export (5 tables), loaded as-is into the bronze layer.
+    database: "{{ env_var('DBT_RAW_CATALOG', 'third_layer') }}"      # Databricks: dbt "database" = UC catalog
+    schema: "{{ env_var('DBT_RAW_SCHEMA', 'marketing_staging') }}"
+    # Freshness needs a load timestamp. Tables loaded with 01_load_raw_ads.sql
+    # have _loaded_at; tables created via the upload UI don't, so
+    # `dbt source freshness` will fail on them (dbt build is unaffected).
+    config:
+      loaded_at_field: _loaded_at
+      freshness:
+        warn_after: {count: 2, period: day}
+        error_after: {count: 7, period: day}
+
+    tables:
+      - name: facebook_ads_stats
+        description: >
+          Daily delivery per ad (file ads_stats.csv). Grain: one row per ad per day.
+          Missing metrics are written as the text "null".
+        columns:
+          - name: ad_id
+            description: Facebook ad id.
+          - name: account_id
+            description: Ad account that paid for the ad.
+          - name: ad_spend
+            description: Spend in the ad account's currency (EUR or USD).
+          - name: ad_impressions
+            description: Impressions. "null" when not reported.
+          - name: ad_clicks
+            description: Clicks. "null" when Facebook reports no clicks.
+          - name: ad_date
+            description: Reporting day (YYYY-MM-DD).
+        data_tests:
+          - elementary.schema_changes:
+              config: {severity: warn}
+
+      - name: facebook_ads
+        description: Ad attributes (file new_ads_de_randomized.csv). One row per ad.
+        columns:
+          - name: ad_id
+          - name: campaign_id
+          - name: ad_group_id
+          - name: account_id
+          - name: ad_name
+          - name: ad_status
+            description: ACTIVE, PAUSED, ARCHIVED or DELETED.
+          - name: ad_updated_at
+
+      - name: facebook_campaigns
+        description: Campaign names (file new_campaign_de_randomized.csv). One row per campaign.
+        columns:
+          - name: campaign_id
+          - name: campaign_name
+          - name: campaign_updated_at
+
+      - name: facebook_ad_groups
+        description: Ad set names (file new_adgroup_de_randomized.csv). One row per ad set.
+        columns:
+          - name: ad_group_id
+          - name: ad_group_name
+          - name: ad_group_updated_at
+
+      - name: facebook_accounts
+        description: Ad accounts with their billing currency (file new_acccount_de_randomized.csv).
+        columns:
+          - name: account_id
+          - name: account_name
+          - name: ad_currency_code
+            description: Currency in which this account's spend is reported.
+          - name: account_created_at
+          - name: account_updated_at

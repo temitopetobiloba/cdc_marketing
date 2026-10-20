@@ -1,0 +1,13 @@
+target/
+dbt_packages/
+logs/
+edr_target/
+site/
+elementary_report.html
+.env
+.venv/
+venv/
+__pycache__/
+.user.yml
+.DS_Store
+dbt_internal_packages/

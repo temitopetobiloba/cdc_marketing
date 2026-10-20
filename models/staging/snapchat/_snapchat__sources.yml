@@ -1,0 +1,77 @@
+# =============================================================================
+# Snapchat Ads raw tables, loaded unchanged (all STRING) into bronze.
+#
+# Hierarchy:  account ─< campaign ─< ad group (ad squad) ─< ad ─< daily stats
+# Differences from Facebook that staging has to absorb:
+#   * stats are per ad, per day, PER COUNTRY (ad_country)
+#   * the stats ad key is called ad_detail_id
+#   * the ad group table is a HISTORY table: an ad group can appear twice
+#   * there is no account table, only account_id on campaigns
+# =============================================================================
+# The source table names below ARE the Databricks table names in
+# third_layer.marketing_staging (rename uploaded tables with the query in README §5.1).
+version: 2
+
+sources:
+  - name: snapchat_ads
+    description: Raw Snapchat Ads export (4 tables), loaded as-is into the bronze layer.
+    database: "{{ env_var('DBT_RAW_CATALOG', 'third_layer') }}"
+    schema: "{{ env_var('DBT_RAW_SCHEMA', 'marketing_staging') }}"
+    # Freshness needs a load timestamp. Tables loaded with 01_load_raw_ads.sql
+    # have _loaded_at; tables created via the upload UI don't, so
+    # `dbt source freshness` will fail on them (dbt build is unaffected).
+    config:
+      loaded_at_field: _loaded_at
+      freshness:
+        warn_after: {count: 2, period: day}
+        error_after: {count: 7, period: day}
+
+    tables:
+      - name: snapchat_ads_stats
+        description: >
+          Daily delivery per ad per country (file snapchat_ads_stats.csv).
+          Grain: one row per ad, per day, per country.
+        columns:
+          - name: ad_detail_id
+            description: Snapchat ad id (joins to snapchat_ads.ad_id).
+          - name: ad_currency_code
+          - name: ad_country
+            description: Two-letter country code, lower-case (de, ch, at...).
+          - name: ad_spend
+            description: Spend in ad_currency_code (already in currency units, not micros).
+          - name: ad_impressions
+          - name: ad_clicks
+            description: Swipe-ups. "null" when not reported.
+          - name: ad_date
+          - name: data_src
+            description: Always "snapchat_ads".
+        data_tests:
+          - elementary.schema_changes:
+              config: {severity: warn}
+
+      - name: snapchat_ads
+        description: Ad names (file snapchat_ads_ad_history_new_ad_names.csv).
+        columns:
+          - name: ad_id
+          - name: ad_group_id
+          - name: ad_name
+          - name: ad_detail_updated_at
+
+      - name: snapchat_ad_groups
+        description: >
+          Ad squad history (file snapchat_ads_adgroup_history_new_ad_group_names.csv).
+          Can hold more than one version per ad_group_id; keep the latest.
+        columns:
+          - name: _surrogate_key
+            description: Upstream row key, unique per version.
+          - name: ad_group_id
+          - name: campaign_id
+          - name: ad_group_name
+          - name: ad_group_updated_at
+
+      - name: snapchat_campaigns
+        description: Campaign names (file snapchat_ads_campaign_history_new_campaign_names.csv).
+        columns:
+          - name: campaign_id
+          - name: account_id
+          - name: campaign_name

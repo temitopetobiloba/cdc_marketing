@@ -1,0 +1,198 @@
+# =============================================================================
+# Staging: one model per source table. Tests here are the FIRST line of
+# defence: if one fails with severity error, `dbt build` skips everything
+# downstream of it, so bad data never reaches the marts.
+# =============================================================================
+version: 2
+
+models:
+
+  # ---------------------------------------------------------------- Facebook
+  - name: stg_facebook__ad_stats
+    description: >
+      Facebook daily delivery, typed and cleaned. **Grain: one row per ad per day.**
+      Spend is in the ad account's currency (see stg_facebook__accounts).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [ad_id, date_day]
+    columns:
+      - name: ad_id
+        description: Facebook ad id.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_facebook__ads')
+                field: ad_id
+      - name: account_id
+        description: Ad account that paid; determines the currency.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_facebook__accounts')
+                field: account_id
+      - name: date_day
+        description: Reporting day.
+        data_tests: [not_null]
+      - name: spend
+        description: Spend in the account currency.
+        data_tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= 0"
+      - name: impressions
+        description: Impressions (0 when the source said "null").
+        data_tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= 0"
+      - name: clicks
+        description: Clicks (0 when the source said "null").
+        data_tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= 0"
+      - name: is_impressions_missing
+        description: True when the source sent "null" impressions.
+      - name: is_clicks_missing
+        description: True when the source sent "null" clicks.
+
+  - name: stg_facebook__ads
+    description: "Facebook ads with their ad group, campaign and account. **Grain: one row per ad.**"
+    columns:
+      - name: ad_id
+        data_tests: [unique, not_null]
+      - name: ad_group_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_facebook__ad_groups')
+                field: ad_group_id
+      - name: campaign_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_facebook__campaigns')
+                field: campaign_id
+      - name: account_id
+        data_tests: [not_null]
+      - name: ad_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['active', 'paused', 'archived', 'deleted']
+              config: {severity: warn}
+
+  - name: stg_facebook__campaigns
+    description: "Facebook campaigns. **Grain: one row per campaign.**"
+    columns:
+      - name: campaign_id
+        data_tests: [unique, not_null]
+      - name: campaign_name
+        data_tests: [not_null]
+
+  - name: stg_facebook__ad_groups
+    description: "Facebook ad sets, renamed to ad groups. **Grain: one row per ad set.**"
+    columns:
+      - name: ad_group_id
+        data_tests: [unique, not_null]
+
+  - name: stg_facebook__accounts
+    description: "Facebook ad accounts and their billing currency. **Grain: one row per account.**"
+    columns:
+      - name: account_id
+        data_tests: [unique, not_null]
+      - name: currency_code
+        description: Currency the account's spend is reported in.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('currency_rates')
+                field: currency_code
+
+  # ---------------------------------------------------------------- Snapchat
+  - name: stg_snapchat__ad_stats
+    description: >
+      Snapchat daily delivery, typed and cleaned.
+      **Grain: one row per ad, per day, per country.**
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [ad_id, date_day, country_code]
+    columns:
+      - name: ad_id
+        description: Snapchat ad id (raw column ad_detail_id).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_snapchat__ads')
+                field: ad_id
+      - name: date_day
+        data_tests: [not_null]
+      - name: country_code
+        description: Upper-case ISO country code where the ad was shown.
+        data_tests: [not_null]
+      - name: currency_code
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('currency_rates')
+                field: currency_code
+      - name: spend
+        data_tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= 0"
+      - name: impressions
+        data_tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= 0"
+      - name: clicks
+        description: Swipe-ups (0 when the source said "null").
+        data_tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= 0"
+
+  - name: stg_snapchat__ads
+    description: "Snapchat ads. **Grain: one row per ad.**"
+    columns:
+      - name: ad_id
+        data_tests: [unique, not_null]
+      - name: ad_group_id
+        description: >
+          About 12% of ads point to an ad group missing from the ad group
+          export. None of them has delivery, so this is a WARNING, not an error.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_snapchat__ad_groups')
+                field: ad_group_id
+              config: {severity: warn}
+
+  - name: stg_snapchat__ad_groups
+    description: "Snapchat ad squads, latest version only. **Grain: one row per ad group.**"
+    columns:
+      - name: ad_group_id
+        data_tests: [unique, not_null]
+      - name: campaign_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_snapchat__campaigns')
+                field: campaign_id
+
+  - name: stg_snapchat__campaigns
+    description: "Snapchat campaigns with their account. **Grain: one row per campaign.**"
+    columns:
+      - name: campaign_id
+        data_tests: [unique, not_null]
+      - name: campaign_name
+        data_tests: [not_null]

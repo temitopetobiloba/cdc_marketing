@@ -1,0 +1,29 @@
+version: 2
+
+models:
+  - name: int_facebook__ad_performance
+    description: >
+      Facebook daily stats joined to ad, ad group, campaign and account.
+      **Grain: one row per ad per day.** Output follows the shared platform contract.
+    columns:
+      - name: campaign_id
+        description: Must be resolvable for every row with delivery.
+        data_tests: [not_null]
+      - name: currency_code
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['EUR', 'USD']
+
+  - name: int_snapchat__ad_performance
+    description: >
+      Snapchat daily stats joined through ad → ad group → campaign.
+      **Grain: one row per ad per day per country.** Output follows the shared platform contract.
+    columns:
+      - name: campaign_id
+        data_tests: [not_null]
+
+  - name: int_ad_performance__unioned
+    description: >
+      All platforms stacked, with spend converted to EUR. Ephemeral (inlined
+      into fct_ad_performance_daily), so its tests live on the fact table.

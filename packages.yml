@@ -1,0 +1,9 @@
+# External dbt packages. Install them with:  dbt deps
+packages:
+  # Handy macros: surrogate keys, generic tests like expression_is_true
+  - package: dbt-labs/dbt_utils
+    version: [">=1.1.0", "<2.0.0"]
+
+  # Data observability: stores test/run results and adds anomaly tests
+  - package: elementary-data/elementary
+    version: [">=0.16.0", "<1.0.0"]

@@ -1,0 +1,81 @@
+# =============================================================================
+# CI — runs automatically on every Pull Request into main.
+#
+# Goal: prove a change works BEFORE it can be merged.
+#   1. builds every model + runs every test in an isolated schema ci_pr_<N>
+#   2. checks source freshness
+#   3. generates the dbt docs (catches broken docs/refs)
+#   4. produces an Elementary report as a downloadable artifact
+#
+# Make this check REQUIRED: GitHub > Settings > Branches > Branch protection
+# rule for "main" > Require status checks to pass > select "dbt-ci".
+# Then nobody (including you) can merge red code.
+# =============================================================================
+name: dbt-ci
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:                      # a new push to the PR cancels the old run
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dbt-ci:
+    runs-on: ubuntu-latest
+    environment: ci               # GitHub environment holding CI secrets
+    env:
+      DBT_PROFILES_DIR: .         # use the repo's profiles.yml
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_CI_TOKEN }}
+      DBT_CI_CATALOG: ci_development
+      DBT_CI_SCHEMA: ci_pr_${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dbt + Elementary CLI
+        run: pip install -r requirements.txt
+
+      - name: Install dbt packages
+        run: dbt deps
+
+      - name: Validate project compiles (no warehouse writes)
+        run: dbt parse --target ci
+
+      - name: Check source freshness
+        run: dbt source freshness --target ci
+        continue-on-error: true   # stale raw files shouldn't block a code review
+
+      - name: Build models + run tests
+        # --full-refresh: CI schemas start empty, so build incremental models from scratch
+        run: dbt build --target ci --full-refresh
+
+      - name: Generate dbt docs
+        run: dbt docs generate --target ci
+
+      - name: Elementary observability report
+        if: always()              # produce the report even when tests failed
+        run: edr report --profile-target ci --file-path elementary_report.html
+        continue-on-error: true
+
+      - name: Upload docs + Elementary report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-reports-pr-${{ github.event.pull_request.number }}
+          path: |
+            target/index.html
+            target/manifest.json
+            target/catalog.json
+            target/run_results.json
+            elementary_report.html
