@@ -52,6 +52,19 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      - name: Check production secrets are configured
+        # Fails fast with ONE clear message instead of a chain of dbt errors.
+        run: |
+          missing=""
+          for v in DATABRICKS_HOST DATABRICKS_HTTP_PATH DATABRICKS_CLIENT_ID DATABRICKS_CLIENT_SECRET; do
+            if [ -z "${!v}" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=Production not configured::Missing secrets in the GitHub 'production' environment:$missing. See README section 5.3."
+            exit 1
+          fi
+          echo "All production secrets present."
+
       - run: pip install -r requirements.txt
       - run: dbt deps
 
@@ -77,20 +90,17 @@ jobs:
           cp target/static_index.html site/index.html
 
       - name: Elementary report
-        if: always()
         run: |
-          edr report --profile-target prod --file-path site/elementary.html
+          edr report --profiles-dir . --profile-target prod --file-path site/elementary.html
         continue-on-error: true
 
       - name: Upload Pages artifact
-        if: always()
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
   publish-docs:
-    needs: deploy
-    if: always()
+    needs: deploy             # only runs when the deploy job succeeded
     runs-on: ubuntu-latest
     environment:
       name: github-pages

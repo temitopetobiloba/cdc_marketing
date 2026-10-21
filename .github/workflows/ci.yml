@@ -43,6 +43,17 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      - name: Check CI secrets are configured
+        run: |
+          missing=""
+          for v in DATABRICKS_HOST DATABRICKS_HTTP_PATH DATABRICKS_TOKEN; do
+            if [ -z "${!v}" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=CI not configured::Missing secrets in the GitHub 'ci' environment:$missing. See README section 5.3."
+            exit 1
+          fi
+
       - name: Install dbt + Elementary CLI
         run: pip install -r requirements.txt
 
@@ -65,7 +76,7 @@ jobs:
 
       - name: Elementary observability report
         if: always()              # produce the report even when tests failed
-        run: edr report --profile-target ci --file-path elementary_report.html
+        run: edr report --profiles-dir . --profile-target ci --file-path elementary_report.html
         continue-on-error: true
 
       - name: Upload docs + Elementary report
