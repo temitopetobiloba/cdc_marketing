@@ -16,13 +16,13 @@
 -- 1. PRODUCTION SERVICE PRINCIPAL (used by the GitHub deploy workflow)
 -- ---------------------------------------------------------------------------
 
--- Read raw data (bronze), never write to it from dbt
-grant use catalog on catalog bronze_production                to `<SERVICE_PRINCIPAL_APP_ID>`;
-grant use schema  on schema  bronze_production.marketing_raw  to `<SERVICE_PRINCIPAL_APP_ID>`;
-grant select      on schema  bronze_production.marketing_raw  to `<SERVICE_PRINCIPAL_APP_ID>`;
+-- Read the raw tables (third_layer.marketing_staging); dbt never writes there
+grant use catalog on catalog third_layer                      to `<SERVICE_PRINCIPAL_APP_ID>`;
+grant use schema  on schema  third_layer.marketing_staging  to `<SERVICE_PRINCIPAL_APP_ID>`;
+grant select      on schema  third_layer.marketing_staging  to `<SERVICE_PRINCIPAL_APP_ID>`;
 -- (Optional) if the SP also runs 01_load_raw_ads.sql as a Databricks Job:
--- grant modify, create table on schema bronze_production.marketing_raw to `<SERVICE_PRINCIPAL_APP_ID>`;
--- grant read volume on volume bronze_production.marketing_raw.landing  to `<SERVICE_PRINCIPAL_APP_ID>`;
+-- grant modify, create table on schema third_layer.marketing_staging to `<SERVICE_PRINCIPAL_APP_ID>`;
+-- grant read volume on volume third_layer.marketing_staging.landing  to `<SERVICE_PRINCIPAL_APP_ID>`;
 
 -- Build the production models: create schemas (staging, marts, elementary...) and tables
 grant use catalog   on catalog marketing_production to `<SERVICE_PRINCIPAL_APP_ID>`;
@@ -41,9 +41,9 @@ grant modify        on catalog marketing_production to `<SERVICE_PRINCIPAL_APP_I
 -- ---------------------------------------------------------------------------
 
 -- Read raw data so dev and CI builds have something to transform
-grant use catalog on catalog bronze_production               to `temitopetobiloba@gmail.com`;
-grant use schema  on schema  bronze_production.marketing_raw to `temitopetobiloba@gmail.com`;
-grant select      on schema  bronze_production.marketing_raw to `temitopetobiloba@gmail.com`;
+grant use catalog on catalog third_layer                     to `temitopetobiloba@gmail.com`;
+grant use schema  on schema  third_layer.marketing_staging to `temitopetobiloba@gmail.com`;
+grant select      on schema  third_layer.marketing_staging to `temitopetobiloba@gmail.com`;
 
 -- Full sandbox rights in development and CI catalogs
 grant use catalog, use schema, create schema, create table, select, modify
@@ -69,4 +69,4 @@ grant use catalog, use schema, select
 -- Verify
 -- ---------------------------------------------------------------------------
 show grants on catalog marketing_production;
-show grants on schema  bronze_production.marketing_raw;
+show grants on schema  third_layer.marketing_staging;

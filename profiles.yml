@@ -1,5 +1,70 @@
+# =============================================================================
+# profiles.yml — HOW dbt connects to Databricks, per environment ("target").
+#
+# No secrets are written in this file. Every credential comes from an
+# environment variable, so this file is safe to commit to Git.
+#
+#   target   who authenticates          catalog it WRITES to   used by
+#   -------  -------------------------  ---------------------  -------------------
+#   dev      YOU (personal token)       third_layer            local development
+#   ci       CI identity (token)        ci_development         GitHub PR checks
+#   prod     SERVICE PRINCIPAL (OAuth)  marketing_production   GitHub deploy job
+#
+# Locally: this file sits in the project folder, where dbt finds it.
+#   Put your values in .env, then:  set -a; source .env; set +a
+# Pick a target:  dbt build --target dev | ci | prod
+# =============================================================================
+
 cdc_marketing_profile:
-  target: dev
+  target: dev            # default when you don't pass --target
+  outputs:
+
+    # ---- Development: your personal sandbox ---------------------------------
+    # Each developer gets their own schema (dbt_<name>) so you never overwrite
+    # a colleague's tables.
+    dev:
+      type: databricks
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"        # personal access token: OK for dev only
+      catalog: "{{ env_var('DBT_DEV_CATALOG', 'third_layer') }}"
+      schema: "{{ env_var('DBT_DEV_SCHEMA', 'marketing_dev') }}"   # -> marketing_dev_staging, marketing_dev_marts... (raw stays in marketing_staging)
+      threads: 4
+
+    # ---- CI: throwaway schema per Pull Request ------------------------------
+    # The GitHub workflow sets DBT_CI_SCHEMA=ci_pr_<number>, so two open PRs
+    # never collide; the schema is dropped when the PR closes.
+    ci:
+      type: databricks
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      catalog: "{{ env_var('DBT_CI_CATALOG', 'ci_development') }}"
+      schema: "{{ env_var('DBT_CI_SCHEMA', 'ci_manual') }}"
+      threads: 4
+
+    # ---- Production: Service Principal, never a person ----------------------
+    # OAuth machine-to-machine: client id + secret of the Databricks Service
+    # Principal. If someone leaves the company, production keeps working,
+    # and every prod change is traceable to the pipeline, not to an individual.
+    prod:
+      type: databricks
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      auth_type: oauth
+      client_id: "{{ env_var('DATABRICKS_CLIENT_ID') }}"       # = Service Principal application ID
+      client_secret: "{{ env_var('DATABRICKS_CLIENT_SECRET') }}"
+      catalog: "{{ env_var('DBT_PROD_CATALOG', 'marketing_production') }}"
+      schema: marketing
+      threads: 8
+
+# -----------------------------------------------------------------------------
+# Elementary's CLI (edr) reads its own profile to find the monitoring tables.
+# Schema = <target schema>_elementary for dev/ci, "elementary" for prod
+# (see macros/generate_schema_name.sql).
+# -----------------------------------------------------------------------------
+elementary:
+  target: prod
   outputs:
     dev:
       type: databricks
@@ -7,5 +72,23 @@ cdc_marketing_profile:
       http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
       token: "{{ env_var('DATABRICKS_TOKEN') }}"
       catalog: "{{ env_var('DBT_DEV_CATALOG', 'third_layer') }}"
-      schema: "{{ env_var('DBT_DEV_SCHEMA', 'marketing_dev') }}"
+      schema: "{{ env_var('DBT_DEV_SCHEMA', 'marketing_dev') }}_elementary"
+      threads: 4
+    ci:
+      type: databricks
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      catalog: "{{ env_var('DBT_CI_CATALOG', 'ci_development') }}"
+      schema: "{{ env_var('DBT_CI_SCHEMA', 'ci_manual') }}_elementary"
+      threads: 4
+    prod:
+      type: databricks
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      auth_type: oauth
+      client_id: "{{ env_var('DATABRICKS_CLIENT_ID') }}"
+      client_secret: "{{ env_var('DATABRICKS_CLIENT_SECRET') }}"
+      catalog: "{{ env_var('DBT_PROD_CATALOG', 'marketing_production') }}"
+      schema: elementary
       threads: 4

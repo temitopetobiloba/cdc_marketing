@@ -111,34 +111,52 @@ cdc_marketing/
 4. Create a Service Principal, generate an OAuth secret, give it *Can use* on the SQL warehouse.
 5. Put its Application ID into `databricks/02_unity_catalog_grants.sql` and run it.
 
-### Which raw table is which? (run once in the Databricks SQL editor)
+### Rename your uploaded tables (run once in the Databricks SQL editor)
 
-The raw tables are numbered (`facebook_1` … `snapchat_4`), so check which file each one holds.
-Look for the column that gives it away (`ad_spend` + `ad_date` = stats, `ad_currency_code` +
-`account_name` = accounts, and so on), then fix the `identifier:` lines in
-`models/staging/*/_*__sources.yml` if they differ.
+If you uploaded the files through the UI with generic names (e.g. `Facbook1`, `Snapchat3`),
+this query works out which file each table holds from its columns and **writes the rename
+statements for you**. Run it, check the result, then copy the `rename_sql` column and run it.
 
 ```sql
-select table_name,
-       array_join(collect_list(column_name), ', ') as columns
-from third_layer.information_schema.columns
-where table_schema = 'marketing_staging'
-  and (table_name like 'facebook%' or table_name like 'snapchat%')
-group by table_name
-order by table_name;
+with cols as (
+    select table_name, collect_set(lower(column_name)) as c
+    from third_layer.information_schema.columns
+    where table_schema = 'marketing_staging'
+      and (lower(table_name) like 'fac%' or lower(table_name) like 'snap%')
+    group by table_name
+),
+classified as (
+    select table_name,
+        case
+            when array_contains(c, 'ad_detail_id')                                    then 'snapchat_ads_stats'
+            when array_contains(c, '_surrogate_key')                                  then 'snapchat_ad_groups'
+            when array_contains(c, 'ad_detail_updated_at')                            then 'snapchat_ads'
+            when array_contains(c, 'ad_currency_code') and array_contains(c, 'account_name') then 'facebook_accounts'
+            when array_contains(c, 'ad_spend')                                        then 'facebook_ads_stats'
+            when array_contains(c, 'ad_status')                                       then 'facebook_ads'
+            when array_contains(c, 'campaign_updated_at')                             then 'facebook_campaigns'
+            when array_contains(c, 'ad_group_updated_at')                             then 'facebook_ad_groups'
+            when array_contains(c, 'campaign_name') and array_contains(c, 'account_id') then 'snapchat_campaigns'
+            else 'UNKNOWN'
+        end as new_name
+    from cols
+)
+select
+    table_name,
+    new_name,
+    count(*) over (partition by new_name) as tables_with_same_content,
+    concat('ALTER TABLE third_layer.marketing_staging.', table_name,
+           ' RENAME TO third_layer.marketing_staging.', new_name, ';') as rename_sql
+from classified
+order by new_name, table_name;
 ```
 
-| Source in dbt | Expected columns | Assumed table |
-|---|---|---|
-| facebook_ads_stats | ad_id, account_id, ad_spend, ad_impressions, ad_clicks, ad_date | facebook_1 |
-| facebook_accounts | account_id, account_name, ad_currency_code, … | facebook_2 |
-| facebook_ad_groups | ad_group_id, ad_group_name, ad_group_updated_at | facebook_3 |
-| facebook_ads | ad_id, campaign_id, ad_group_id, account_id, ad_name, ad_status, … | facebook_4 |
-| facebook_campaigns | campaign_id, campaign_name, campaign_updated_at | facebook_5 |
-| snapchat_ads | ad_id, ad_group_id, ad_name, ad_detail_updated_at | snapchat_1 |
-| snapchat_ad_groups | _surrogate_key, ad_group_id, campaign_id, ad_group_name, … | snapchat_2 |
-| snapchat_campaigns | campaign_id, account_id, campaign_name | snapchat_3 |
-| snapchat_ads_stats | ad_detail_id, ad_currency_code, ad_country, ad_spend, … | snapchat_4 |
+* Expect **9 different `new_name`s**. If two tables get the same name (`tables_with_same_content` = 2),
+  the same file was uploaded twice: compare their row counts and keep one (`DROP TABLE` the other).
+* `UNKNOWN` means the columns didn't match any expected file. Check that table by hand.
+* Expected row counts: facebook_ads_stats 92,300 · facebook_ads 98,926 · facebook_campaigns 4,162 ·
+  facebook_ad_groups 13,433 · facebook_accounts 16 · snapchat_ads_stats 2,809 · snapchat_ads 2,513 ·
+  snapchat_ad_groups 267 · snapchat_campaigns 109.
 
 ### 5.2 Local development (uv)
 ```bash

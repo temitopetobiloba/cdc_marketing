@@ -52,10 +52,9 @@ it already loaded (safe to re-run).
 **Check.** The final query's row counts match the expected numbers in the script
 (e.g. `facebook_ads_stats` 92,300, `snapchat_ads_stats` 2,809).
 
-> **Already loaded your files another way?** (You did: `third_layer.marketing_staging.facebook_1` …
-> `snapchat_4`.) Then skip this step. The sources already point there, and each source table has an
-> `identifier:` naming the real table. Run the "Which raw table is which?" query in README §5.1
-> and fix any `identifier:` that doesn't match.
+> **Already uploaded your files through the UI?** (You did, as `Facbook1` … `Snapchat5`.) Then skip
+> this step. Run the rename query in README §5.1 instead: it works out which file each table holds
+> and writes the `ALTER TABLE … RENAME TO …` statements for you.
 >
 > **Why the models build into `marketing_dev_*` and not `marketing_staging`:** raw data and
 > transformed data should never share a schema. Otherwise nobody can tell the untouched copy from
