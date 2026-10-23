@@ -291,3 +291,4 @@ More queries: `analyses/business_questions.sql`.
 ## 8. Next steps
 Daily ECB rates · ingestion straight from the ad APIs · slim CI (`state:modified+`, `--defer`) ·
 metric views / semantic layer for agents · Elementary alerts to Slack/Teams · a country dimension.
+
